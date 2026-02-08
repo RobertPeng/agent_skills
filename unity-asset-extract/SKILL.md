@@ -3,156 +3,156 @@ name: unity-asset-extract
 description: Unity game asset extraction toolkit. Use when user wants to extract, decrypt, or export assets from Unity APK/IPA/bundles, handle UnityCFS encrypted bundles, fix AssetRipper "Unreadable" resources, use UnityPy for batch extraction, or recover TypeTree-stripped assets. Triggers on keywords like "AssetRipper", "UnityPy", "UnityCFS", "Unreadable", "TypeTree", "asset bundle", "extract textures", "extract mesh", "IL2CPP", "DummyDll", or Unity game reverse engineering tasks.
 ---
 
-# Unity Game Asset Extraction Skill
+# Unity 游戏资源提取技能
 
-A comprehensive guide for extracting assets from Unity games, based on real-world experience with IL2CPP + TypeTree-stripped games.
+基于 IL2CPP + TypeTree-stripped 游戏实战经验的综合提取指南。
 
-## Quick Diagnosis Flowchart
-
-```
-APK/IPA/Game Files
-  │
-  ├─ Extract APK (unzip) → Find asset bundles
-  │    └─ Common locations: assets/bin/Data/, assets/yoo/*, assets/aa/*
-  │
-  ├─ Check bundle format
-  │    ├─ Starts with "UnityFS" → Standard bundle, proceed normally
-  │    ├─ Starts with "UnityCFS" → Strip 32-byte header first (see §1)
-  │    ├─ Starts with "UnityRaw" → Old format, most tools support it
-  │    └─ Unknown magic → May be custom encryption (need game-specific decryption)
-  │
-  ├─ Try AssetRipper first
-  │    ├─ All resources readable → Done!
-  │    └─ Many "Unreadable" resources → Check scripting backend (see §2)
-  │
-  └─ If Unreadable → Use UnityPy with built-in TypeTree (see §3)
-```
-
-## §1 UnityCFS Format (Not Real Encryption)
-
-UnityCFS is a lightweight wrapper, NOT encryption. Structure:
+## 快速诊断流程图
 
 ```
-Offset  Size  Content
-0x00    8     Magic: "UnityCFS"
-0x08    4     Version (uint32 LE)
-0x0C    20    SHA1 hash of the UnityFS data
-0x20    ...   Standard UnityFS data starts here
+APK/IPA/游戏文件
+  │
+  ├─ 解压 APK (unzip) → 找到 asset bundle
+  │    └─ 常见位置: assets/bin/Data/, assets/yoo/*, assets/aa/*
+  │
+  ├─ 检查 bundle 格式
+  │    ├─ 以 "UnityFS" 开头 → 标准 bundle，直接处理
+  │    ├─ 以 "UnityCFS" 开头 → 需先剥离 32 字节头 (见 §1)
+  │    ├─ 以 "UnityRaw" 开头 → 旧格式，多数工具支持
+  │    └─ 未知魔数 → 可能是自定义加密（需游戏专用解密）
+  │
+  ├─ 优先尝试 AssetRipper
+  │    ├─ 所有资源可读 → 完成!
+  │    └─ 大量 "Unreadable" 资源 → 检查脚本后端 (见 §2)
+  │
+  └─ 若 Unreadable → 使用 UnityPy 内置 TypeTree (见 §3)
 ```
 
-**Detection**: First 8 bytes == `UnityCFS`
+## §1 UnityCFS 格式（并非真正加密）
 
-**Solution**: Strip the first 32 bytes. Use `scripts/strip_cfs.py`:
+UnityCFS 是一层轻量级包装，并非加密。结构如下：
+
+```
+偏移    大小   内容
+0x00    8     魔数: "UnityCFS"
+0x08    4     版本号 (uint32 小端序)
+0x0C    20    UnityFS 数据的 SHA1 哈希
+0x20    ...   标准 UnityFS 数据从此处开始
+```
+
+**检测方法**：前 8 字节 == `UnityCFS`
+
+**解决方案**：剥离前 32 字节。使用 `scripts/strip_cfs.py`：
 
 ```bash
-python3 scripts/strip_cfs.py <input_dir> <output_dir>
+python3 scripts/strip_cfs.py <输入目录> <输出目录>
 ```
 
-## §2 TypeTree Stripping + IL2CPP (Root Cause of "Unreadable")
+## §2 TypeTree 剥离 + IL2CPP（"Unreadable" 的根因）
 
-### Why Resources Are Unreadable
+### 资源为何不可读
 
-Unity games can strip TypeTree info to reduce bundle size. When TypeTree is stripped:
-- **Built-in types** (Texture2D, Mesh, AudioClip, etc.) → need TypeTree database to deserialize
-- **Custom types** (MonoBehaviour scripts) → need DLL type info to deserialize
+Unity 游戏可以剥离 TypeTree 信息以减小 bundle 体积。当 TypeTree 被剥离时：
+- **内置类型**（Texture2D、Mesh、AudioClip 等）→ 需要 TypeTree 数据库来反序列化
+- **自定义类型**（MonoBehaviour 脚本）→ 需要 DLL 类型信息来反序列化
 
-### How to Identify
+### 如何判断
 
-1. **Check scripting backend**: Look for `libil2cpp.so` (Android) or `GameAssembly.dll` (Windows/iOS)
-   - If present → IL2CPP backend, likely TypeTree-stripped
-2. **Check in AssetRipper**: If many Texture2D/Mesh show as "Unreadable" → TypeTree stripped
+1. **检查脚本后端**：查找 `libil2cpp.so`（Android）或 `GameAssembly.dll`（Windows/iOS）
+   - 若存在 → IL2CPP 后端，很可能已剥离 TypeTree
+2. **在 AssetRipper 中检查**：若大量 Texture2D/Mesh 显示为 "Unreadable" → TypeTree 已剥离
 
-### Recovery Strategy
+### 恢复策略
 
-| Resource Type | Solution | Tool |
-|--------------|----------|------|
-| **Built-in types** (Texture2D, Mesh, AudioClip, Shader, AnimationClip, Font, TextAsset, Sprite) | Use UnityPy (has built-in TypeTree DB for all Unity versions) | `scripts/extract_assets.py` |
-| **MonoBehaviour** (custom scripts) | Use Il2CppDumper to generate DummyDll, then load in AssetRipper | Il2CppDumper |
+| 资源类型 | 解决方案 | 工具 |
+|---------|---------|------|
+| **内置类型**（Texture2D、Mesh、AudioClip、Shader、AnimationClip、Font、TextAsset、Sprite） | 使用 UnityPy（内置所有 Unity 版本的 TypeTree 数据库） | `scripts/extract_assets.py` |
+| **MonoBehaviour**（自定义脚本） | 用 Il2CppDumper 生成 DummyDll，然后在 AssetRipper 中加载 | Il2CppDumper |
 
-### Il2CppDumper Workflow (for MonoBehaviour)
+### Il2CppDumper 工作流（针对 MonoBehaviour）
 
 ```bash
-# 1. Get Il2CppDumper (match your .NET version)
-# Download from: https://github.com/Perfare/Il2CppDumper/releases
+# 1. 获取 Il2CppDumper（匹配你的 .NET 版本）
+# 下载地址: https://github.com/Perfare/Il2CppDumper/releases
 
-# 2. Required files from game:
-#    - libil2cpp.so (from lib/arm64-v8a/ in APK)
-#    - global-metadata.dat (from assets/bin/Data/Managed/)
+# 2. 从游戏中获取所需文件:
+#    - libil2cpp.so (APK 中的 lib/arm64-v8a/)
+#    - global-metadata.dat (assets/bin/Data/Managed/)
 
-# 3. Run Il2CppDumper
+# 3. 运行 Il2CppDumper
 dotnet Il2CppDumper.dll libil2cpp.so global-metadata.dat /output/path
 
-# 4. Output: DummyDll/ directory with reconstructed .dll files
-#    Copy DummyDll/*.dll → game's Managed/ directory
+# 4. 输出: DummyDll/ 目录，包含重建的 .dll 文件
+#    将 DummyDll/*.dll 复制到游戏的 Managed/ 目录
 
-# 5. Reload in AssetRipper → MonoBehaviour types now readable
+# 5. 在 AssetRipper 中重新加载 → MonoBehaviour 类型现在可读了
 ```
 
-## §3 UnityPy Extraction (Primary Solution for Built-in Types)
+## §3 UnityPy 提取（内置类型的首选方案）
 
-UnityPy has a built-in TypeTree database covering all Unity versions. It can read resources that AssetRipper marks as "Unreadable".
+UnityPy 内置了覆盖所有 Unity 版本的 TypeTree 数据库，能读取 AssetRipper 标记为 "Unreadable" 的资源。
 
-### Setup
+### 安装
 
 ```bash
 pip install UnityPy Pillow
 ```
 
-### Critical Configuration
+### 关键配置
 
 ```python
 import UnityPy
-# MUST set fallback version for TypeTree-stripped bundles
-UnityPy.config.FALLBACK_UNITY_VERSION = "2021.3.57f2"  # Match game's Unity version
+# 必须为 TypeTree 被剥离的 bundle 设置回退版本号
+UnityPy.config.FALLBACK_UNITY_VERSION = "2021.3.57f2"  # 匹配游戏的 Unity 版本
 ```
 
-### Finding Unity Version
+### 查找 Unity 版本号
 
 ```bash
-# Method 1: From bundle header
+# 方法 1: 从 bundle 头部读取
 python3 -c "
 with open('somefile.bundle', 'rb') as f:
     data = f.read(64)
-    # UnityFS header contains version string
+    # UnityFS 头部包含版本字符串
     print(data)
 "
 
-# Method 2: From globalgamemanagers or data.unity3d
+# 方法 2: 从 globalgamemanagers 或 data.unity3d
 strings assets/bin/Data/globalgamemanagers | grep "20[12][0-9]\."
 
-# Method 3: From APK lib
+# 方法 3: 从 APK 的 lib 目录
 strings lib/arm64-v8a/libunity.so | grep "20[12][0-9]\.[0-9]"
 ```
 
-### Full Extraction
+### 完整提取
 
 ```bash
-# Extract all supported asset types
-python3 scripts/extract_assets.py <bundle_dir> <output_dir> --unity-version 2021.3.57f2
+# 提取所有支持的资源类型
+python3 scripts/extract_assets.py <bundle目录> <输出目录> --unity-version 2021.3.57f2
 
-# Extract textures only (with hotupdate support)
-python3 scripts/extract_textures.py <bundle_dir> <output_dir> --unity-version 2021.3.57f2
+# 仅提取贴图（支持热更新资源）
+python3 scripts/extract_textures.py <bundle目录> <输出目录> --unity-version 2021.3.57f2
 ```
 
-## §4 Common Game Resource Structures
+## §4 常见游戏资源目录结构
 
-### YooAsset (Common in Chinese Mobile Games)
+### YooAsset（国内开发团队常用）
 
 ```
 assets/
 ├── yoo/
-│   └── Main/           # Main asset bundles
-│       ├── *.bundle     # Asset bundles (may have CFS header)
-│       ├── PackageManifest_*.bytes  # Manifest
+│   └── Main/           # 主资源包
+│       ├── *.bundle     # 资源包（可能带 CFS 头）
+│       ├── PackageManifest_*.bytes  # 清单文件
 │       └── ...
 ```
 
-Hotupdate files typically stored separately on device:
+热更新文件通常单独存储在设备上：
 ```
-/sdcard/Android/data/<package>/files/yoo/Main/  # or similar
+/sdcard/Android/data/<包名>/files/yoo/Main/  # 或类似路径
 ```
 
-### Addressables (Unity Default)
+### Addressables（Unity 默认方案）
 
 ```
 assets/
@@ -162,65 +162,65 @@ assets/
 │       └── catalog.json
 ```
 
-### Standard Unity
+### 标准 Unity 结构
 
 ```
 assets/
 ├── bin/
 │   └── Data/
-│       ├── data.unity3d          # Main data
-│       ├── globalgamemanagers    # Settings
-│       ├── Managed/              # DLLs (Mono) or metadata (IL2CPP)
+│       ├── data.unity3d          # 主数据
+│       ├── globalgamemanagers    # 设置
+│       ├── Managed/              # DLL (Mono) 或元数据 (IL2CPP)
 │       │   └── global-metadata.dat
 │       └── Resources/
 ```
 
-## §5 AssetRipper Usage Tips
+## §5 AssetRipper 使用技巧
 
-### API Mode (Headless)
+### API 模式（无头模式）
 
 ```bash
-# Start AssetRipper GUI, then use HTTP API
-# Load folder
+# 启动 AssetRipper GUI，然后通过 HTTP API 操作
+# 加载文件夹
 curl -X POST http://localhost:8888/LoadFolder \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "path=/path/to/bundles"
 
-# Export all
+# 导出全部
 curl -X POST http://localhost:8888/ExportAll \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "path=/path/to/output"
 ```
 
-### Improving Results
+### 提升导出效果
 
-1. **Add DummyDll**: Copy Il2CppDumper output DLLs to game's `Managed/` directory before loading
-2. **Set Unity version**: Ensure correct version is detected
-3. **Use with UnityPy**: AssetRipper for scene structure + MonoBehaviour; UnityPy for textures/meshes/audio
+1. **添加 DummyDll**：加载前将 Il2CppDumper 输出的 DLL 复制到游戏的 `Managed/` 目录
+2. **设置 Unity 版本**：确保正确检测到版本号
+3. **与 UnityPy 配合使用**：AssetRipper 处理场景结构 + MonoBehaviour；UnityPy 处理贴图/网格/音频
 
-## §6 Supported Export Formats
+## §6 支持的导出格式
 
-| Type | UnityPy Export | Format | Notes |
-|------|---------------|--------|-------|
-| Texture2D | `obj.read().image.save()` | PNG | Includes all texture formats (ETC, ASTC, DXT, etc.) |
-| Mesh | `obj.read().export()` | OBJ | Vertices, normals, UVs, faces |
-| AudioClip | `obj.read().samples` | WAV/raw | Dict of {name: bytes} |
-| TextAsset | `obj.read().m_Script` | TXT/bytes | May be binary data |
-| Font | `obj.read().m_FontData` | TTF/OTF | Raw font data |
-| Sprite | `obj.read().image.save()` | PNG | Cropped from atlas |
-| AnimationClip | Limited support | — | Complex format, YAML possible |
-| Shader | Limited support | — | Compiled shader, hard to decompile |
-| MonoBehaviour | `obj.read_typetree()` | JSON/dict | Needs TypeTree or DummyDll |
+| 类型 | UnityPy 导出方法 | 格式 | 备注 |
+|------|----------------|------|------|
+| Texture2D | `obj.read().image.save()` | PNG | 支持所有贴图格式（ETC、ASTC、DXT 等） |
+| Mesh | `obj.read().export()` | OBJ | 包含顶点、法线、UV、面 |
+| AudioClip | `obj.read().samples` | WAV/raw | 返回 {名称: 字节} 字典 |
+| TextAsset | `obj.read().m_Script` | TXT/bytes | 可能是二进制数据 |
+| Font | `obj.read().m_FontData` | TTF/OTF | 原始字体数据 |
+| Sprite | `obj.read().image.save()` | PNG | 从图集中裁剪 |
+| AnimationClip | 有限支持 | — | 格式复杂，可导出 YAML |
+| Shader | 有限支持 | — | 已编译着色器，难以反编译 |
+| MonoBehaviour | `obj.read_typetree()` | JSON/dict | 需要 TypeTree 或 DummyDll |
 
-## §7 Troubleshooting
+## §7 故障排查
 
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| "No valid Unity version found" | TypeTree stripped, no version set | Set `FALLBACK_UNITY_VERSION` |
-| Texture exports as solid color | Wrong texture format detection | Update UnityPy to latest |
-| Mesh has no UVs | UV data in separate channel | Check `m_UV1`, `m_UV2`, etc. |
-| AudioClip empty samples | FMOD audio (encrypted) | Need FMOD bank extraction |
-| MonoBehaviour unreadable | Missing type definitions | Use Il2CppDumper → DummyDll |
-| AssetRipper Content-Type error | Wrong HTTP request format | Use `application/x-www-form-urlencoded` |
-| .NET version mismatch | Il2CppDumper needs specific .NET | Download matching version (net6/net7/net8) |
-| CFS bundles won't load | UnityCFS header not stripped | Strip first 32 bytes |
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| "No valid Unity version found" | TypeTree 已剥离，未设置版本号 | 设置 `FALLBACK_UNITY_VERSION` |
+| 贴图导出为纯色 | 贴图格式检测错误 | 更新 UnityPy 到最新版本 |
+| 网格缺少 UV | UV 数据在其他通道中 | 检查 `m_UV1`、`m_UV2` 等 |
+| AudioClip 采样为空 | FMOD 音频（已加密） | 需要 FMOD bank 提取工具 |
+| MonoBehaviour 不可读 | 缺少类型定义 | 使用 Il2CppDumper → DummyDll |
+| AssetRipper Content-Type 错误 | HTTP 请求格式错误 | 使用 `application/x-www-form-urlencoded` |
+| .NET 版本不匹配 | Il2CppDumper 需要特定 .NET 版本 | 下载匹配的版本（net6/net7/net8） |
+| CFS bundle 无法加载 | UnityCFS 头未剥离 | 剥离前 32 字节 |
