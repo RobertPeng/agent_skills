@@ -60,14 +60,48 @@ unity-asset-extract/
 
 ## 如何使用
 
-将本仓库克隆到对应工具的 Skills 目录，Agent 即可自动识别并加载：
+本仓库提供 `link_skill.py` 脚本，将技能以符号链接的方式安装到对应工具的 Skills 目录：
 
 | 工具 | Skills 目录 |
 |------|------------|
 | Cursor | `~/.cursor/skills/` |
 | Claude Code | `~/.claude/skills/` |
 
-当用户的提问匹配到 Skill 的触发条件时，Agent 会自动加载并按照 Skill 中定义的流程执行任务。
+### 快速开始
+
+```bash
+# 克隆仓库
+git clone https://github.com/RobertPeng/agent_skills.git
+cd agent_skills
+
+# 交互式选择（引导操作）
+python3 link_skill.py
+
+# 查看当前链接状态
+python3 link_skill.py --status
+```
+
+### 命令行用法
+
+```bash
+# 全部技能链接到 Claude Code
+python3 link_skill.py -t claude --all
+
+# 全部技能链接到 Cursor
+python3 link_skill.py -t cursor --all
+
+# 指定技能链接到某个工具
+python3 link_skill.py -t claude -s unity-asset-extract
+python3 link_skill.py -t cursor -s analyze-game-video
+
+# 取消链接
+python3 link_skill.py --unlink -t claude -s unity-asset-extract
+
+# 目标位置已有同名目录时，使用 --force 强制覆盖
+python3 link_skill.py -t claude --all --force
+```
+
+链接完成后，当用户的提问匹配到 Skill 的触发条件时，Agent 会自动加载并按照 Skill 中定义的流程执行任务。
 
 ## 创建新 Skill
 
